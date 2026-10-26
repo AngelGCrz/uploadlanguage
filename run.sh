@@ -27,4 +27,4 @@ if ! "$PYTHON" -c 'import docx' >/dev/null 2>&1; then
   exit 1
 fi
 
-exec "$PYTHON" -X utf8 "$PROJECT_DIR/upload_language.py" "$@"
+exec "$PYTHON" -B -X utf8 "$PROJECT_DIR/upload_language.py" "$@"

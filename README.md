@@ -60,7 +60,16 @@ En `config.json`, conserva estos valores y el resto de propiedades existentes:
   "matching": "position",
   "compareEnglish": true,
   "layout": "template",
-  "output": "output"
+  "output": "output",
+  "resolution": {
+    "width": 1363,
+    "height": 860,
+    "paddingLeft": 130,
+    "paddingRight": 60,
+    "paddingBottom": 120
+  },
+  "symbolTextureWidth": 400,
+  "symbolTextureWidths": {}
 }
 ```
 
@@ -136,6 +145,43 @@ Con `compareEnglish: false`:
   se insertan tal cual y también se avisa.
 - Las filas sin traducción se omiten. Se sigue avisando si el número de textos
   no coincide con el de reglas inglesas, pero sin descartar nada.
+
+### `resolution`: que el texto no se salga de la imagen
+
+Cada idioma tiene su propia longitud, así que el programa acomoda los textos
+dentro de la imagen de fondo de la ayuda. Los textos se insertan igual; solo
+cambia **dónde se corta cada línea y cuántas líneas van en cada página**.
+
+| Propiedad | Significado |
+|---|---|
+| `width`, `height` | Tamaño en píxeles de la imagen de fondo de la ayuda (en g490, `info_1.png` = 1363×860). |
+| `paddingLeft`, `paddingRight` | Margen interior izquierdo y derecho que el texto no debe pasar. |
+| `paddingBottom` | Opcional (0 por defecto). Margen inferior, p. ej. para no tapar los botones. |
+| `symbolTextureWidth` | Ancho en píxeles de la textura de los iconos `##sym_X.png##` a escala 1 (400 en g490). |
+| `symbolTextureWidths` | Opcional. Ancho de textura de iconos concretos, p. ej. `{"text_grand.png": 320}`. |
+
+Cómo se acomoda (igual que dibuja el juego en `helppageitems.ts`: centro de la imagen
+como origen, cada línea alineada a la izquierda en el `offset` de `items` y bajando `gap` píxeles):
+
+- Cada icono ocupa `ancho de textura × scale` más su `gapX`, con el `scale` y `gapX`
+  de `rules.settings.items.symbols` de la plantilla (o `default`, o 0.4), igual que el juego.
+
+- Si una palabra se sale por la derecha, pasa a la siguiente línea con la
+  sangría de continuación de la plantilla. Un icono que no cabe también pasa
+  a la siguiente línea. Solo se corta dentro de una palabra si no hay espacios
+  (japonés, chino, tailandés…).
+- Si el `items` de la página se llena, se crea otra página copiando la página
+  inglesa (título, estilos, `setting`), igual que está construida la plantilla.
+- Si el `offset` de la plantilla empieza fuera de `paddingLeft`, se mueve al margen.
+- El ancho se calcula con medidas de la fuente de los juegos (Alte Haas Grotesk Bold);
+  los idiomas con otra fuente (CJK, tailandés…) usan una estimación. Si algo
+  aún se sale en el juego, aumenta `paddingRight`; si un icono ocupa más, ajusta su ancho
+  en `symbolTextureWidths`.
+
+Sin `resolution`, el programa usa el cálculo anterior (`contentWidth`, `bottomY`, `symbolWidth`).
+
+Los lanzadores ejecutan Python con `-B`, por lo que no se crean carpetas `__pycache__`.
+Para las pruebas usa `python -B -m unittest test_upload_language`.
 
 | Acción | Windows (CMD) | macOS (Terminal) |
 |---|---|---|

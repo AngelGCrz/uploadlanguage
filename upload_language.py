@@ -11,12 +11,13 @@ import shutil
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # keep the project free of __pycache__ folders
 from modules.common import issue, read_json, write_json
 from modules.extraction import extract_docx, select_documents
 from modules.languages import requested_languages
 from modules.text_processing import (BULLET, CONDITION, TOKEN, balanced_lines, clean, convert_target, direct_tokens,
-                                        identity, positional_token_mapping, skeleton, source_match, strip_rule, wrap,
-                                        width)
+                                        engine_width, identity, positional_token_mapping, skeleton, source_match,
+                                        strip_rule, wrap, width)
 
 BASE = Path(__file__).resolve().parent
 FILES = ("info.json", "jackpotpages.json")
@@ -246,6 +247,49 @@ def logical_indents(pages):
     return indents
 
 
+def fit_resolution(prototypes, settings, resolution):
+    """Text width and lines per page inside the configured image, whose centre is the items' origin.
+
+    The engine draws each line left-aligned at offset x and steps down by gap from offset y."""
+    image_width, image_height = float(resolution["width"]), float(resolution["height"])
+    left = -image_width / 2 + float(resolution.get("paddingLeft", 0))
+    right = image_width / 2 - float(resolution.get("paddingRight", 0))
+    bottom = image_height / 2 - float(resolution.get("paddingBottom", 0))
+    fitted, widths, capacities = [], [], []
+    for page in prototypes:
+        page = copy.deepcopy(page)
+        override = page["items"].get("setting", {})
+        font = {**settings.get("font", {}), **override.get("font", {})}
+        size = float(font.get("size", 26))
+        gap = float(override.get("gap", settings.get("gap", 30)))
+        x, y = (float(value) for value in override.get("offset", settings.get("offset", "0,200")).split(","))
+        if x < left:  # the template text would start outside the padded image
+            page["items"].setdefault("setting", {})["offset"] = f"{left:g},{y:g}"
+            x = left
+        if right - x <= 0:
+            raise ValueError("resolution no deja ancho para el texto; revisa width y paddingLeft/paddingRight")
+        fitted.append(page)
+        widths.append(right - x)
+        capacities.append(max(1, math.floor((bottom - size / 2 + y) / gap) + 1))
+    return fitted, widths, capacities
+
+
+def line_measure(template, config):
+    """Line width function that reproduces how the game draws text and inline icons."""
+    settings = template["rules"].get("settings", {}).get("items", {})
+    symbols = settings.get("symbols", {})
+    stroke = float(settings.get("font", {}).get("stroke", {}).get("size", 0))
+    textures = config.get("symbolTextureWidths", {})
+    default_texture = float(config.get("symbolTextureWidth", 400))
+
+    def icon(asset):
+        # Same lookup as the engine: symbols[<name without extension>] or symbols.default, scale 0.4.
+        setting = symbols.get(asset.split(".")[0]) or symbols.get("default") or {}
+        return (float(textures.get(asset, default_texture)) * float(setting.get("scale") or 0.4),
+                float(setting.get("gapX") or 0))
+    return lambda text, size, _symbol_width=None: engine_width(text, size, icon, stroke)
+
+
 def paginate_section(template, section, translations, title, config, lang, report, subtitles=None):
     prototypes = section["pages"]
     settings = template["rules"].get("settings", {}).get("items", {})
@@ -259,7 +303,13 @@ def paginate_section(template, section, translations, title, config, lang, repor
             raise ValueError(f"Espaciado inválido en {section['title']}")
         capacities.append(max(1, math.floor((y - config["bottomY"]) / gap) + 1))
     size, capacity = max(sizes), min(capacities)
-    if config.get("layout") == "template":
+    resolution, measure, widths = config.get("resolution"), width, None
+    if resolution:
+        # Fit the text in the configured image instead of the rough contentWidth/bottomY estimate.
+        prototypes, widths, capacities = fit_resolution(prototypes, settings, resolution)
+        measure, capacity = line_measure(template, config), min(capacities)
+        config = {**config, "contentWidth": min(widths)}
+    elif config.get("layout") == "template":
         # The English layout is stronger evidence than the rough font estimate.
         authored_width = max((width(line, size, config["symbolWidth"])
                               for page in template["rules"]["pages"]
@@ -278,10 +328,13 @@ def paginate_section(template, section, translations, title, config, lang, repor
         capacity = min(capacities)
     default_title_size = template["rules"].get("settings", {}).get("titles", {}).get("font", {}).get("size", 55)
     title_size = max(page["titles"][0].get("size", default_title_size) for page in prototypes)
-    if any(width(line, title_size, config["symbolWidth"]) > config["contentWidth"] for line in title.splitlines()):
+    title_width = (float(resolution["width"]) - float(resolution.get("paddingLeft", 0))
+                   - float(resolution.get("paddingRight", 0))) if resolution else config["contentWidth"]
+    if any(measure(line, title_size, config["symbolWidth"]) > title_width for line in title.splitlines()):
         issue(report, lang, section["file"], f"Revisar ancho del título: {title}")
     if config.get("layout") == "template" or any(len(page.get("titles", [])) > 1 for page in prototypes):
-        return paginate_authored_pages(prototypes, translations, title, subtitles or {}, sizes, capacities, config, settings)
+        return paginate_authored_pages(prototypes, translations, title, subtitles or {}, sizes, capacities, config, settings,
+                                       widths, measure)
     spacing = rule_spacing(prototypes)
     indents = logical_indents(prototypes)
     batches, current = [], []
@@ -292,7 +345,8 @@ def paginate_section(template, section, translations, title, config, lang, repor
         condition = "{fixedJackpot}" if CONDITION.match(expected) else ""
         indent = indents[style] if BULLET.match(expected) else ""
         bullet = indent + "• " if BULLET.match(expected) else ""
-        lines = wrap(bullet + (target if target is not None else strip_rule(expected)), size, config, indent + "   ")
+        lines = wrap(bullet + (target if target is not None else strip_rule(expected)), size, config, indent + "   ",
+                     measure)
         separators = spacing[style]
         if current and len(current) + len(lines) + separators > capacity:
             batches.append(current)
@@ -315,7 +369,8 @@ def paginate_section(template, section, translations, title, config, lang, repor
     return result
 
 
-def paginate_authored_pages(prototypes, translations, title, subtitles, sizes, capacities, config, settings):
+def paginate_authored_pages(prototypes, translations, title, subtitles, sizes, capacities, config, settings,
+                            widths=None, measure=width):
     """Flow complete rules within subtitle blocks instead of expanding each old page."""
     rules, starts = [], []
     has_bullets = any(BULLET.match(line) for page in prototypes for line in page["items"]["lines"])
@@ -385,6 +440,7 @@ def paginate_authored_pages(prototypes, translations, title, subtitles, sizes, c
             prefix = max(top_padding, default=2 if any(h.get("offset") for _, h in heading_refs) else 0)
         capacity = capacities[owner]
         size = sizes[owner]
+        page_config = {**config, "contentWidth": widths[owner]} if widths else config
         current = [""] * min(prefix, max(0, capacity - 1))
         first_page = True
 
@@ -409,7 +465,8 @@ def paginate_authored_pages(prototypes, translations, title, subtitles, sizes, c
             condition = "{fixedJackpot}" if CONDITION.match(expected) else ""
             indent = indents[style] if BULLET.match(expected) else ""
             bullet = indent + "• " if BULLET.match(expected) else ""
-            wrapped = wrap(bullet + (target if target is not None else strip_rule(expected)), size, config, indent + "   ")
+            wrapped = wrap(bullet + (target if target is not None else strip_rule(expected)), size, page_config,
+                           indent + "   ", measure)
             lines = []
             for line in wrapped:
                 if lines:
@@ -540,6 +597,19 @@ def reset_output(output, root, documents, templates):
     print("Output eliminado; documentos, configuración y plantillas conservados.")
 
 
+def validate_resolution(resolution):
+    if resolution is None:
+        return
+    keys = ("width", "height", "paddingLeft", "paddingRight", "paddingBottom")
+    if not isinstance(resolution, dict) or any(
+            not isinstance(resolution.get(key, 0), (int, float)) or resolution.get(key, 0) < 0 for key in keys):
+        raise ValueError("resolution debe tener width, height y paddings numéricos no negativos")
+    if resolution.get("width", 0) <= 0 or resolution.get("height", 0) <= 0:
+        raise ValueError("resolution.width y resolution.height deben ser mayores que 0")
+    if resolution.get("paddingLeft", 0) + resolution.get("paddingRight", 0) >= resolution["width"]:
+        raise ValueError("paddingLeft + paddingRight debe ser menor que resolution.width")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=BASE / "config.json")
@@ -547,6 +617,7 @@ def main(argv=None):
     parser.add_argument("--reset", action="store_true", help="Borrar output")
     args = parser.parse_args(argv)
     config = {"contentWidth": 1100, "bottomY": -290, "symbolWidth": 75, **read_json(args.config)}
+    validate_resolution(config.get("resolution"))
     root = args.config.resolve().parent
     documents, template_folder, output = ((root / config[key]).resolve() for key in ("documents", "templates", "output"))
     if args.reset:

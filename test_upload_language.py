@@ -613,6 +613,50 @@ class ImporterTests(unittest.TestCase):
         self.assertGreater(len(pages), 2)
         self.assertTrue(any("se inserta tal cual" in entry["message"] for entry in self.report()))
 
+    def test_resolution_wraps_overflowing_text_and_icons_inside_the_image(self):
+        self.config.update(compareEnglish=False, layout="template", symbolTextureWidth=100,
+                           resolution=dict(width=700, height=300, paddingLeft=50, paddingRight=50))
+        app.write_json(self.root / "config.json", self.config)
+        long_rule = "• " + " ".join(["Sehr lange Übersetzung [SYMBOL_8A] mit vielen Wörtern"] * 6)
+        self.add_german([("x", long_rule) for _ in range(4)])
+        self.assertEqual(self.run_app(), 0)
+        pages = [page for page in self.generated()["rules"]["pages"]
+                 if page.get("titles") and page["titles"][0]["text"] == "SPIELREGELN"]
+        settings = self.english["rules"]["settings"]["items"]
+        _, widths, capacities = app.fit_resolution(self.english["rules"]["pages"][:1], settings,
+                                                   self.config["resolution"])
+        measure = app.line_measure(self.english, self.config)
+        self.assertGreater(len(pages), 1)  # full items continue on another page built like the template
+        for page in pages:
+            self.assertEqual(page["items"]["setting"], {"font": {"size": 21}})
+            self.assertLessEqual(len(page["items"]["lines"]), capacities[0])
+            for line in page["items"]["lines"]:
+                self.assertLessEqual(measure(line, 21), widths[0], line)
+        lines = [line for page in pages for line in page["items"]["lines"]]
+        # An icon that does not fit moves to the next line instead of overflowing.
+        icon_line = text_processing.wrap("• Wort Wort ##sym_8a.png## Ende", 21, dict(contentWidth=140, symbolWidth=0),
+                                         measure=measure)
+        self.assertEqual(icon_line, ["• Wort Wort", "   ##sym_8a.png## Ende"])
+        words = " ".join(line.strip(" •") for line in lines if line.strip())
+        self.assertEqual(words.count("Übersetzung"), 24)  # nothing lost or cut inside a word
+
+    def test_resolution_moves_text_that_starts_outside_the_left_padding(self):
+        self.english["rules"]["settings"]["items"]["offset"] = "-400,170"
+        self.save_english()
+        self.config["resolution"] = dict(width=700, height=300, paddingLeft=50, paddingRight=50)
+        app.write_json(self.root / "config.json", self.config)
+        self.add_german()
+        self.assertEqual(self.run_app(), 0)
+        self.assertEqual(self.generated()["rules"]["pages"][0]["items"]["setting"]["offset"], "-300,170")
+
+    def test_invalid_resolution_is_rejected(self):
+        for resolution in (dict(width=0, height=300), dict(width=500, height=300, paddingLeft=300, paddingRight=200),
+                           dict(width=500, height=300, paddingRight=-1)):
+            with self.subTest(resolution=resolution), self.assertRaisesRegex(ValueError, "resolution|padding"):
+                self.config["resolution"] = resolution
+                app.write_json(self.root / "config.json", self.config)
+                self.run_app()
+
 
 if __name__ == "__main__":
     unittest.main()

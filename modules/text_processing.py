@@ -218,16 +218,58 @@ def width(text, size, symbol_width):
     return total
 
 
-def wrap(text, size, config, continuation="   "):
+def glyph_em(char):
+    """Advance width of a character in em, modelled on the games' bold grotesk font."""
+    if unicodedata.combining(char) or char in "​‌‍":
+        return 0
+    if unicodedata.east_asian_width(char) in "WF":
+        return 1.0
+    if char.isspace() or char in "iljI.,:;'!|`":
+        return 0.27
+    if char in "ftr()[]-\"/":
+        return 0.36
+    if char in "mwMW@%":
+        return 0.94
+    if char == "•":
+        return 0.5
+    if char.isdigit():
+        return 0.56
+    category = unicodedata.category(char)
+    if category == "Lu":
+        return 0.72
+    return 0.59 if category.startswith("L") else 0.6
+
+
+def engine_width(text, size, icon, stroke=0):
+    """Width of a rules line as the game draws it (helppageitems.ts with pixi BitmapText).
+
+    Each text segment advances by its glyphs without trailing spaces plus the stroke; each icon
+    advances by its sprite width + gapX x stroke x 2 and is drawn gapX x stroke from its position.
+    icon(asset) returns (sprite width, gapX)."""
+    x = right = 0.0
+    for part in re.split(r"(##[^#]+##)", text):
+        if part.startswith("##"):
+            sprite, gap_x = icon(part[2:-2])
+            shift = gap_x * round(stroke)
+            right = max(right, x + shift + sprite)
+            x += sprite + 2 * shift
+        else:
+            x += size * sum(glyph_em(char) for char in part.rstrip(" ")) + stroke
+            right = max(right, x)
+    return right
+
+
+def wrap(text, size, config, continuation="   ", measure=width):
     # Non-asset # characters include the engine's #currency# placeholder.
     atoms = re.findall(r"##[^#]+##|#currency#|[\s\S]", text)
     lines, line = [], ""
     for atom in atoms:
         if line and unicodedata.category(atom[0]).startswith("M"):
             line += atom  # never separate a vowel sign/diacritic from its base letter (Thai, Khmer…)
-        elif line and width(line + atom, size, config["symbolWidth"]) > config["contentWidth"]:
+        elif line and measure(line + atom, size, config["symbolWidth"]) > config["contentWidth"]:
+            # Words and icons that overflow move to the next line; break inside a word only without spaces.
             split = max(line.rfind(" "), line.rfind("\u200b"))
-            if split > len(line) // 2 and not line[:split].endswith("•"):
+            if split > len(line) - len(line.lstrip()) and not line[:split].rstrip().endswith("•"):
                 lines.append(line[:split].rstrip())
                 line = continuation + line[split + 1:] + atom
             else:

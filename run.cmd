@@ -31,5 +31,5 @@ if errorlevel 1 (
   echo "%UPLOAD_LANGUAGE_PYTHON%" %UPLOAD_LANGUAGE_PYTHON_ARGS% -m pip install -r "%~dp0requirements.txt" 1>&2
   exit /b 1
 )
-"%UPLOAD_LANGUAGE_PYTHON%" %UPLOAD_LANGUAGE_PYTHON_ARGS% -X utf8 "%~dp0upload_language.py" %*
+"%UPLOAD_LANGUAGE_PYTHON%" %UPLOAD_LANGUAGE_PYTHON_ARGS% -B -X utf8 "%~dp0upload_language.py" %*
 exit /b %errorlevel%

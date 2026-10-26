@@ -6,9 +6,18 @@
   "compareEnglish": false,
   "layout": "template",
   "output": "output",
+  "resolution": {
+    "width": 1363,
+    "height": 860,
+    "paddingLeft": 130,
+    "paddingRight": 60,
+    "paddingBottom": 120
+  },
   "contentWidth": 1100,
   "bottomY": -290,
   "symbolWidth": 75,
+  "symbolTextureWidth": 400,
+  "symbolTextureWidths": {},
   "prefixes": {
     "GER": "deu", "GRE": "ell", "FRE": "fra", "IND": "ido",
     "ITA": "ita", "JAP": "jpn", "CAM": "kmb", "SOU": "krs",
