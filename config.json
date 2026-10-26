@@ -1,0 +1,19 @@
+{
+  "documents": "files",
+  "googleDriveUrl": "",
+  "templates": "template",
+  "matching": "position",
+  "compareEnglish": true,
+  "layout": "template",
+  "output": "output",
+  "contentWidth": 1100,
+  "bottomY": -290,
+  "symbolWidth": 75,
+  "prefixes": {
+    "GER": "deu", "GRE": "ell", "FRE": "fra", "IND": "ido",
+    "ITA": "ita", "JAP": "jpn", "CAM": "kmb", "SOU": "krs",
+    "MAL": "mly", "POR": "por", "RUS": "rus", "THA": "tha",
+    "TUR": "tur", "VIE": "vie"
+  },
+  "tokens": {}
+}
