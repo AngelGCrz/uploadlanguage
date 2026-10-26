@@ -209,7 +209,10 @@ def direct_rules(section, document, lang, source, config, allowed, report):
         if not target:
             issue(report, lang, source, f"Fila {entry['number']} de {section['title']} sin traducción; se omite")
             continue
-        target, unresolved = direct_tokens(target, config)
+        original = target
+        target, unresolved, repaired = direct_tokens(target, entry["english"], allowed, config)
+        if repaired:
+            issue(report, lang, source, f"Marcador del DOCX corregido en {section['title']} fila {entry['number']}: {original!r}")
         if unresolved:
             issue(report, lang, source, f"Marcador sin imagen conocida en {section['title']} fila {entry['number']}; "
                   f"se inserta tal cual: {', '.join(unresolved)}")

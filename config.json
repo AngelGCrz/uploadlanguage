@@ -3,7 +3,7 @@
   "googleDriveUrl": "",
   "templates": "template",
   "matching": "position",
-  "compareEnglish": true,
+  "compareEnglish": false,
   "layout": "template",
   "output": "output",
   "contentWidth": 1100,

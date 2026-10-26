@@ -39,20 +39,44 @@ def asset_name(label, config):
         f"sym_{int(symbol[1])}{symbol[2].lower()}.png" if symbol else None)
 
 
-def direct_tokens(text, config):
-    """Convert [MARKER] to ##asset## by its name only; returns (text, unresolved markers)."""
-    unresolved = []
+def direct_tokens(text, english, allowed, config):
+    """Convert [MARKER] to ##asset## without comparing with the template's English text.
+
+    Bracket typos and mistyped/translated names (SIMBOL_8A, ÍCONE_GRAND_JACKPOT) are resolved
+    against the template images and the markers of the same DOCX row.
+    Returns (text, unresolved markers, repaired)."""
+    template_assets = {token_label(re.sub(r"\.[^.]+$", "", asset)): asset for asset in allowed}
+
+    def resolve(label):
+        return (asset_name(label, config) or asset_name(token_label(label), config)
+                or similar_label(token_label(label), template_assets))
+
+    row_assets = {}
+    for raw in TOKEN.findall(english or ""):
+        if raw.startswith("["):
+            asset = resolve(raw[1:-1])
+            if asset:
+                row_assets[token_label(raw[1:-1])] = asset
+    unresolved, repaired = [], False
 
     def convert(match):
+        nonlocal repaired
         raw = match.group()
         if raw.startswith("##"):
             return raw
-        asset = asset_name(raw[1:-1], config) or asset_name(token_label(raw[1:-1]), config)
+        label = raw[1:-1]
+        asset = asset_name(label, config) or asset_name(token_label(label), config)
+        if not asset:
+            asset = similar_label(token_label(label), template_assets) or similar_label(token_label(label), row_assets)
+            repaired = repaired or asset is not None
         if not asset:
             unresolved.append(raw)
             return raw
         return f"##{asset}##"
-    return TOKEN.sub(convert, text), unresolved
+
+    fixed = repair_markers(text, english or "")
+    converted = TOKEN.sub(convert, fixed)
+    return converted, unresolved, repaired or fixed != text
 
 
 def token_label(label):

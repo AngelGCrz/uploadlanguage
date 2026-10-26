@@ -577,6 +577,29 @@ class ImporterTests(unittest.TestCase):
                                  "• Final rule.", "• Zusätzliche Regel."])
         self.assertTrue(any("4 textos" in entry["message"] for entry in self.report()))
 
+    def test_compare_english_false_still_repairs_markers(self):
+        self.config["compareEnglish"] = False
+        app.write_json(self.root / "config.json", self.config)
+        for target in ("[SYMBOL_8A gewinnt.", "SYMBOL_8A] gewinnt.", "[[SYMBOL_8A]] gewinnt.",
+                       "[SIMBOL_8A] gewinnt.", "[SÍMBOLO_8A] gewinnt."):
+            with self.subTest(target=target):
+                self.add_german([("First [SYMBOL_8A] pays.", target)])
+                self.assertEqual(self.run_app(), 0)
+                self.assertEqual(self.generated()["rules"]["pages"][0]["items"]["lines"][0], "• ##sym_8a.png## gewinnt.")
+                self.assertTrue(any("Marcador del DOCX corregido" in entry["message"] for entry in self.report()))
+
+    def test_compare_english_false_resolves_translated_icon_names(self):
+        self.config["compareEnglish"] = False
+        app.write_json(self.root / "config.json", self.config)
+        self.english["rules"]["pages"] = [{"titles": [{"text": "GAME RULES"}],
+            "items": {"lines": ["• The ##text_grand.png## awards a prize."]}}]
+        self.save_english()
+        self.add_german([("The [GRAND_JACKPOT_ICON] awards a prize.", "Das [GROßER _JACKPOT_ICON] gibt einen Preis."),
+                         ("", "Das [ÍCONE_GRAND] zählt.")])
+        self.assertEqual(self.run_app(), 0)
+        lines = [line for line in self.generated()["rules"]["pages"][0]["items"]["lines"] if line.strip()]
+        self.assertEqual(lines, ["• Das ##text_grand.png## gibt einen Preis.", "• Das ##text_grand.png## zählt."])
+
     def test_compare_english_false_keeps_unknown_markers_and_layout_capacity(self):
         self.config["compareEnglish"] = False
         app.write_json(self.root / "config.json", self.config)

@@ -129,7 +129,11 @@ Con `compareEnglish: false`:
   ancho de línea, número de líneas por página y subtítulos. Los textos sobrantes
   usan el formato de la última regla inglesa.
 - Los marcadores se convierten por su nombre (`[SYMBOL_8A]` → `##sym_8a.png##`,
-  o con `tokens`). Los que no se reconocen se insertan tal cual y se avisa en `report.json`.
+  o con `tokens`) y se siguen corrigiendo: corchetes (`[[X]]`, `X]`, `[X`) y nombres
+  mal escritos o traducidos (`[SIMBOL_8A]`, `[SÍMBOLO_8A]`, `[GROßER_JACKPOT_ICON]`),
+  usando las imágenes de la plantilla y los marcadores de la misma fila del DOCX.
+  Las correcciones se informan en `report.json`; los marcadores que no se reconocen
+  se insertan tal cual y también se avisa.
 - Las filas sin traducción se omiten. Se sigue avisando si el número de textos
   no coincide con el de reglas inglesas, pero sin descartar nada.
 
